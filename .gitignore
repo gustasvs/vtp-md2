@@ -1,3 +1,8 @@
+# tokenization stuff
+*.model
+*.vocab
+
+# data files
 /data
 
 # Byte-compiled / optimized / DLL files
