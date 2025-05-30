@@ -1,6 +1,12 @@
 import os, json, re
-from collections import Counter
+import sentencepiece as spm
 import pandas as pd
+import spacy
+import en_core_web_sm
+
+from collections import Counter
+
+VOCAB_SIZE = 8_000
 
 
 def load_txt(filename):
@@ -48,9 +54,9 @@ def map_emotions_to_ekman(df, ekman_mapping, emotions_list):
 
 
 def analyze_dataset(df, name="ds"):
+    print(f"\n{'=' * 30}")
+    print(f" {name} dataset analysis ".center(30, "="), end="\n\n")
 
-    print(f" {name} dataset analysis ".center(30, "="))
-    
     emo_counts = Counter(df["ekman_label"])
     total = sum(emo_counts.values())
     print("Emotion distribution:")
@@ -88,6 +94,52 @@ def analyze_dataset(df, name="ds"):
         print(f"  {emo}: {words}")
 
 
+nlp = spacy.load("en_core_web_sm", disable=["ner", "parser", "textcat"])
+
+def clean_up(text: str) -> str:
+    text = text.lower()
+    text = re.sub(r"https?://\S+|www\.\S+", " ", text)              # URLs
+    text = re.sub(r"@\w+", " ", text)                               # @mentions
+    text = re.sub(r"\b[\w\.-]+?@[\w\.-]+\.\w{2,4}\b", " ", text)    # emails
+    text = re.sub(r"[^\w\s]", " ", text)                            # punctuation / emojis
+    text = re.sub(r"\d+", "<NUM>", text)                            # numbers
+    text = re.sub(r"\s+", " ", text).strip()                        # extra spaces 
+    return text
+
+def lemmatise(text: str) -> str:
+    doc = nlp(text)
+    return " ".join(t.lemma_ for t in doc)
+
+def preprocess_text_for_models(dataframes):
+    # accepts all dataframes returning the same order but preprocessed
+
+    # write all text to a temporary file for SentencePiece training
+    for df in dataframes:
+        df["clean_text"] = df["text"].apply(lambda text: lemmatise(clean_up(text)))
+    print("Cleaned text for training:")
+    for df in dataframes:
+        print(f"  {df['clean_text'].head(5).to_list()}")
+    
+    with open("tmp_corpus.txt", "w", encoding="utf-8") as f:
+        for df in dataframes:
+            for text in df["clean_text"]:
+                f.write(text + "\n")
+    
+    spm.SentencePieceTrainer.Train(
+        input="tmp_corpus.txt",
+        model_prefix="bpe_model",
+        vocab_size=VOCAB_SIZE,
+        model_type="bpe",
+        character_coverage=1.0
+    )
+    os.remove("tmp_corpus.txt")
+    sp = spm.SentencePieceProcessor(model_file="bpe_model.model")
+
+    df["input_ids"] = df["clean_text"].apply(lambda t: sp.encode(t, out_type=int))
+    
+    return df
+
+
 def preprocess_data():
     # load data from files
     emotions_list = load_txt("data/emotions.txt")
@@ -102,11 +154,30 @@ def preprocess_data():
     test_data = filter_dataset(test_data, name="test")
     train_data = filter_dataset(train_data, name="train")
 
+    # map emotions to Ekman categories
     dev_data = map_emotions_to_ekman(dev_data, ekman_mapping, emotions_list)
     test_data = map_emotions_to_ekman(test_data, ekman_mapping, emotions_list)
     train_data = map_emotions_to_ekman(train_data, ekman_mapping, emotions_list)
+
+    print("first 5 samples in dev set:")
+    for i, row in dev_data.head().iterrows():
+        print(f"  {i}: {row['text']} -> {row['ekman_label']}")
+        print(row)
     
     analyze_dataset(dev_data, name="dev")
+    analyze_dataset(test_data, name="test")
+    analyze_dataset(train_data, name="train")
+
+    # preprocess text for models
+    [dev_data, test_data, train_data] = preprocess_text_for_models(
+        [dev_data, test_data, train_data]
+    )
+
+    print("first 5 samples in dev set after preprocessing:")
+    for i, row in dev_data.head().iterrows():
+        # print(f"  {i}: {row['text']} -> {row['ekman_label']}")
+        print(row)
+    
 
 
 if __name__ == "__main__":
