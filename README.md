@@ -1,12 +1,16 @@
-## 1 Install
+## 1 Clone the repo
 ```
-pip install -r requirements.txt
+git clone https://github.com/gustasvs/vtp-md2.git
+```
+## 2 Install
+```
+pip install -r req.txt
 ```  
 ```
 python -m spacy download en_core_web_sm
 ```
 
-## 2 Data
+## 3 Data
 ### download datasets
 ```
 python data_fetch.py
@@ -16,7 +20,7 @@ python data_fetch.py
 python data_preprocess.py
 ```
 
-## 3 Models
+## 4 Models
 script                 | purpose                  | output  
 -----------------------|--------------------------|--------------------------  
 model_naive_bayes.py   | 3-fold CV + train        | nb_ekman.pkl  
@@ -28,7 +32,7 @@ Set variable `ANALYSE` to `True` in `model_naive_bayes.py` file
 ### To test different RoBERTa models
 Change variable `MODEL_NAME` in `model_roberta.py` file
 
-## 4 Inference
+## 5 Inference
 For Bayes model: ```python model_naive_bayes.py```
 
 For RoBERTa model:
