@@ -7,7 +7,8 @@ import en_core_web_sm
 from collections import Counter
 
 VOCAB_SIZE = 8_000
-
+PREPROCESSED_DATA_DIR = "data/preprocessed"
+SP_MODEL_NAME = "bpe_model"
 
 def load_txt(filename):
     with open(filename, "r", encoding="utf-8") as f:
@@ -84,8 +85,7 @@ def analyze_dataset(df, name="ds"):
     
     avg_len = sum(lengths) / len(lengths)
     ttr = len(global_freq) / len(all_tokens)
-    print(f"\nAverage tokens/sample: {avg_len:.2f}")
-    print(f"Type to token ratio: {ttr:.4f}")
+    print(f"\nAverage tokens per sample: {avg_len:.2f}")
     
     print("\nTop 10 tokens per Ekman category:")
     for emo, toks in tokens_by_emo.items():
@@ -106,20 +106,21 @@ def clean_up(text: str) -> str:
     text = re.sub(r"\s+", " ", text).strip()                        # extra spaces 
     return text
 
-def lemmatise(text: str) -> str:
+def lemmatise(text) :
     doc = nlp(text)
-    return " ".join(t.lemma_ for t in doc)
+    return " ".join(t.lemma_.lower() for t in doc)
 
+# accepts arbritrary list of dataframes
+# returning the same order but preprocessed
 def preprocess_text_for_models(dataframes):
-    # accepts all dataframes returning the same order but preprocessed
-
-    # write all text to a temporary file for SentencePiece training
+    print("Preprocessing...")
     for df in dataframes:
         df["clean_text"] = df["text"].apply(lambda text: lemmatise(clean_up(text)))
     print("Cleaned text for training:")
     for df in dataframes:
         print(f"  {df['clean_text'].head(5).to_list()}")
     
+    # idk how to use SPM without a file
     with open("tmp_corpus.txt", "w", encoding="utf-8") as f:
         for df in dataframes:
             for text in df["clean_text"]:
@@ -127,17 +128,36 @@ def preprocess_text_for_models(dataframes):
     
     spm.SentencePieceTrainer.Train(
         input="tmp_corpus.txt",
-        model_prefix="bpe_model",
+        model_prefix=SP_MODEL_NAME,
         vocab_size=VOCAB_SIZE,
         model_type="bpe",
         character_coverage=1.0
     )
     os.remove("tmp_corpus.txt")
-    sp = spm.SentencePieceProcessor(model_file="bpe_model.model")
+    sp = spm.SentencePieceProcessor(model_file=f"{SP_MODEL_NAME}.model")
 
-    df["input_ids"] = df["clean_text"].apply(lambda t: sp.encode(t, out_type=int))
+    for df in dataframes:
+        df["tokenised_ids"] = df["clean_text"].apply(lambda t: sp.encode(t, out_type=int))
+
+    processed = []
+    for df in dataframes:
+        processed.append(df)
+    return processed
+
+def save_dataset(df, name="ds"):
+    if not os.path.exists(PREPROCESSED_DATA_DIR):
+        os.makedirs(PREPROCESSED_DATA_DIR)
     
-    return df
+    columns_to_keep = ["text", "clean_text", "ekman_label", "tokenised_ids"]
+    df = df[columns_to_keep]
+
+    df.to_csv(
+        os.path.join(PREPROCESSED_DATA_DIR, f"{name}.tsv"),
+        sep="\t",
+        index=False,
+        encoding="utf-8"
+    )
+    print(f"Saved {name} dataset to {PREPROCESSED_DATA_DIR}/{name}.tsv")
 
 
 def preprocess_data():
@@ -169,15 +189,15 @@ def preprocess_data():
     analyze_dataset(train_data, name="train")
 
     # preprocess text for models
-    [dev_data, test_data, train_data] = preprocess_text_for_models(
-        [dev_data, test_data, train_data]
-    )
+    dev_data, test_data, train_data = preprocess_text_for_models([dev_data, test_data, train_data])
 
-    print("first 5 samples in dev set after preprocessing:")
+    print("dev set head:")
     for i, row in dev_data.head().iterrows():
-        # print(f"  {i}: {row['text']} -> {row['ekman_label']}")
         print(row)
-    
+
+    save_dataset(dev_data, "dev")
+    save_dataset(test_data, "test")
+    save_dataset(train_data, "train")
 
 
 if __name__ == "__main__":

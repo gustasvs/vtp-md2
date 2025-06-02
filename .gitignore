@@ -1,6 +1,7 @@
 # tokenization stuff
 *.model
 *.vocab
+*.pkl
 
 # data files
 /data
