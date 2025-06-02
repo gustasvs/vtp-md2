@@ -1,2 +1,10 @@
+requests
+pandas
 sentencepiece
-spacy
+spacy>=3.0
+scikit-learn
+torch>=2.0
+transformers
+datasets
+evaluate
+tqdm
